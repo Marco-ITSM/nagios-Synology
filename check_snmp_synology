@@ -1,12 +1,13 @@
 #!/bin/bash
 # check_snmp_synology for nagios
-# Version: 2.6
-# 07.12.2016  Nicolas Ordonez, Switzerland
+# Version: 2.7
+# 2016-12-07  Nicolas Ordonez, Switzerland
 # Thanks to contributors:
 # - Tobias Schenke
 # Modified By:
-# 04.17.2019  Corben Eastman
-# 12.07.2019  Blake Cottington - added additional UPS OIDs/stats, added output for performance data for system temperature and UPS
+# 2019-04-17 Corben Eastman
+# 2019-12-07 Blake Cottington - added additional UPS OIDs/stats, added output for performance data for system temperature and UPS
+# 2025-03-07 Marco Hahnen - now works when Volumes reside on Storage Pool / Output of Storage Used/Total 
 #---------------------------------------------------
 # this plugin checks the health of your Synology NAS
 # - System status (Power, Fans)
@@ -17,7 +18,7 @@
 # - UPS information
 # - Storage percentage of use
 #
-# Tested with DSM 6.2
+# Tested with DSM 6.2 & 7.2
 #---------------------------------------------------
 # Based on http://ukdl.synology.com/download/Document/MIBGuide/Synology_DiskStation_MIB_Guide.pdf
 #---------------------------------------------------
@@ -389,12 +390,16 @@ else
             # in this case the former grep failed with more then one result.
             # modified script to look for a line with '= "/volume1"' instead of 'volume1'
             #storageID[$i]=$(echo "$syno_diskspace" | grep ${storageName[$i]} | cut -d "=" -f1 | rev | cut -d "." -f1 | rev)
-            storageID[$i]=$(echo "$syno_diskspace" | grep -i "= \"\?/${storageName[$i]}\"\?" | cut -d "=" -f1 | rev | cut -d "." -f1 | rev)
+            storageID[$i]=$(echo "$syno_diskspace" | grep -i "= \"\?/${storageName[$i]}\"\?$" | cut -d "=" -f1 | rev | cut -d "." -f1 | rev)
 
             if [ "${storageID[$i]}" != "" ] ; then
                 storageSize[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageSize.${storageID[$i]}" | cut -d "=" -f2 )
                 storageSizeUsed[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageSizeUsed.${storageID[$i]}" | cut -d "=" -f2 )
-                storageAllocationUnits[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageAllocationUnits.${storageID[$i]}" | cut -d "=" -f2 )
+		        storageAllocationUnits[$i]=$(echo "$syno_diskspace" | grep "$OID_StorageAllocationUnits.${storageID[$i]}" | cut -d "=" -f2 | sed "s/ Bytes//")
+		        storageSizeAllocated[$i]=$((${storageSize[$i]} * ${storageAllocationUnits[$i]}))
+		        storageSizeAllocatedIec[$i]=$(echo ${storageSizeAllocated[$i]} | numfmt --to=iec-i --suffix=B)
+		        storageSizeUsedAllocated[$i]=$((${storageSizeUsed[$i]} * ${storageAllocationUnits[$i]})) 
+		        storageSizeUsedAllocatedIec[$i]=$(echo ${storageSizeUsedAllocated[$i]} | numfmt --to=iec-i --suffix=B)
                 storagePercentUsed[$i]=$((${storageSizeUsed[$i]} * 100 / ${storageSize[$i]}))
                 storagePercentUsedString[$i]="${storagePercentUsed[$i]}% used"
 
@@ -446,7 +451,7 @@ else
         "raid")           echo " $healthString Number of RAID volume:   $nbRAID" ;
                           for i in `seq 1 $nbRAID`;
                           do
-                              echo " ${RAIDName[$i]} status:${RAIDStatus[$i]} ${storagePercentUsedString[$i]}" ;
+				echo " ${RAIDName[$i]} status:${RAIDStatus[$i]} ${storageSizeUsedAllocatedIec[$i]}/${storageSizeAllocatedIec[$i]} (${storagePercentUsedString[$i]})" ;
                           done ;;
         "ups")	  echo "$healthString UPS Status:		 $upsStatus" ;;
     esac
